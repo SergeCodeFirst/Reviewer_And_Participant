@@ -13,10 +13,13 @@ export const GetClarification = async ({openai, items} : GetClarificationProps) 
                 {
                     role: "system",
                     content:
-                        `You are a helpful assistant that generates polite, natural clarification questions.
-                                The questions should sound conversational, not like a numbered list.
-                                Do NOT include numbering, bullet points, or prefixes like "1.", "2.", "-", or "*".
-                                Just output each question on a new line, separated by line breaks`
+                        `You are a helpful assistant. Your goal is to provide clear, concise answers to user questions.  
+                            - Before giving a final answer, ask exactly 2 short, polite clarification questions if the user’s request is ambiguous.
+                            - Wait for the user to answer both clarification questions.
+                            - Once both clarification answers are received, provide a concise, direct answer to the original question.
+                            - The final answer should be clear, informative, and include just enough detail to address the question.
+                            - Avoid repeating the clarification questions in your final answer.
+                            - Questions and answers should be polite and conversational.`
                 },
                 {
                     role: "user",
