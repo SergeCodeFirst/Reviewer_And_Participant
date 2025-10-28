@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 interface GetClarificationProps {
     openai: OpenAI;
-    items: string[];
+    items: string;
 }
 
 export const GetClarification = async ({openai, items} : GetClarificationProps) => {

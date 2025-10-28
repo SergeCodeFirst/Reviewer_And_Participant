@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import WebSocket, { WebSocketServer } from "ws";
 import { RateLimit } from "./RateLimiting.js";
 import { GetClarification } from "./GetClarification.js";
+import type {ClientToServerEvents} from "../../packages/shared/share.types.js";
+import type { FollowUpPayload } from "../../packages/shared/share.types.js";
 
 interface HandleWsMessageProps {
     message: string;
@@ -12,10 +14,17 @@ interface HandleWsMessageProps {
     wss: WebSocketServer;
 }
 
+
+// Event payload type
+type ParsedMessage = {
+    event?: keyof ClientToServerEvents;
+    data?: FollowUpPayload;
+} & Record<string, unknown>;
+
 export const HandleWsMessage = async ({message, ws, redis, openai, wss}: HandleWsMessageProps) => {
     console.log("Message Received from client:", message);
     try {
-        const parsed = JSON.parse(message.toString());
+        const parsed: ParsedMessage = JSON.parse(message.toString());
 
         // Flatten the message so a Participant can display it nicely
         if (parsed.event === 'followup:create' && parsed.data?.items) {

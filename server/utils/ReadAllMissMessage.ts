@@ -22,7 +22,7 @@ export const ReadAllMissMessage = async ({lastFollowupId, lastQuestionsId, redis
         for (const stream of followups) {
             for (const reviewerMsg of stream.messages) {
                 const reviewerStreamId = reviewerMsg.id;
-                // Send reviewer message first
+                // Send reviewer a message first
                 ws.send(JSON.stringify({
                     sender: "Reviewer",
                     message: reviewerMsg.message.text,

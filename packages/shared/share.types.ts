@@ -1,18 +1,18 @@
-type FollowUpPayload = {
+export type FollowUpPayload = {
     items: string[];
     createdAt: number
 };
 
-type AgentQuestions = {
+export type AgentQuestions = {
     text: string;
     createdAt: number;
     streamId?: string
 };
 
-interface ClientToServerEvents {
+export interface ClientToServerEvents {
     "followup:create": (payload: FollowUpPayload) => void;
 }
 
-interface ServerToClientEvents {
+export interface ServerToClientEvents {
     "agent:questions": (data: AgentQuestions) => void;
 }
