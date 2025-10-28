@@ -110,6 +110,21 @@ wss.on("connection", (ws) => {
                 const items = parsed.data.items.join(" ");
                 console.log("🧠 Generating clarification questions for:", items);
 
+                // ✅ Rate limiting (max 1 message per 5s per reviewer)
+                const rateKey = `rate:${ws}`;
+                const count = await redis.incr(rateKey);
+                if (count === 1) await redis.expire(rateKey, 3);
+                if (count > 1) {
+                    ws.send(JSON.stringify({ error: "Rate limit exceeded" }));
+                    return;
+                }
+
+                // ✅ Deduplication (avoid duplicate reviewer messages)
+                const hashKey = `hash:${items}`;
+                const exists = await redis.exists(hashKey);
+                if (exists) return;
+                await redis.set(hashKey, "1", { EX: 3600 }); // cache 1h
+
                 // 1️⃣ Save reviewer message to Redis stream
                 const reviewerId = await redis.xAdd(
                     "followups:stream",
