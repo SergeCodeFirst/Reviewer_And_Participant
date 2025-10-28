@@ -1,13 +1,8 @@
 .homepage {
-    background-color: deeppink;
-    width: 300px;
-    height: 300px;
 }
 
 .homepage__border {
-    border-radius: 0.5rem;
 }
 
 .homepage__text {
-    color: rebeccapurple;
 }
