@@ -25,25 +25,7 @@ const openai = new OpenAI({
 
 // ROUTES
 fastify.get("/", async () => ({ status: "Fastify + WS server running 🚀" }));
-
 fastify.get("/health", async () => ({ ok: true }));
-
-fastify.post("/reset-streams", async (req, reply) => {
-    try {
-        // Delete the stored follow-ups and AI questions
-        await redis.del("followups:stream");
-        await redis.del("questions:stream");
-
-        console.log("✅ Redis streams cleared successfully");
-
-        // Respond with a success message
-        return { status: "success", message: "Redis streams cleared" };
-    } catch (err) {
-        console.error("⚠️ Error clearing Redis streams:", err);
-        reply.status(500);
-        return { status: "error", message: "Failed to clear Redis streams" };
-    }
-});
 
 // Create a server from Fastify and attach WebSocket
 const server = createServer(fastify.server);
