@@ -13,3 +13,5 @@ dist/
 # IDE/editor configs
 .vscode/
 *.swp
+
+dump.rds
