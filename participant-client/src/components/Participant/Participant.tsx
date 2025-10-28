@@ -96,7 +96,7 @@ const Participant: React.FC = () => {
 
     return (
         <div className={styles.container}>
-            <h2 className={styles.title}>Participant B</h2>
+            <h2 className={styles.title}>Participant</h2>
             <div className={styles.messagesContainer}>
                 {messages.map((msg, i) => (
                     <div key={i}>

@@ -16,7 +16,9 @@ dotenv.config();
 const fastify = Fastify();
 
 // Redis client
-const redis: RedisClientType = createClient();
+const redis: RedisClientType = createClient({
+    url: process.env.REDIS_URL || "redis://localhost:6379",
+});
 redis.on("error", (err) => console.error("Redis error:", err));
 await redis.connect();
 
@@ -62,7 +64,7 @@ wss.on("connection", (ws) => {
         await HandleWsMessage({message: message.toString(), ws, redis, openai, wss,});
     });
 
-    ws.on("close", () => console.log("Client disconnected"));
+    ws.on("close", () => console.log("❌ Client disconnected"));
 });
 
 // Start both Fastify + WebSocket on the same port

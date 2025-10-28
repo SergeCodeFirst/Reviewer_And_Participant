@@ -18,7 +18,7 @@ const SpeechForm: React.FC = () => {
     useEffect(() => {
         const ws = new WebSocket("ws://localhost:3000");
         ws.onopen = () => console.log("✅ Connected to backend");
-        ws.onmessage = (msg) => console.log("📩 Server:", msg.data);
+        ws.onmessage = (msg) => console.log("Server:", msg.data);
         ws.onclose = () => console.log("❌ Disconnected");
         setSocket(ws);
         return () => ws.close();
