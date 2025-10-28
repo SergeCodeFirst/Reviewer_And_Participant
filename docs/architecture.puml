@@ -1,61 +1,31 @@
+title Untitled
+
 @startuml
-title Reviewer → Participant Web App Architecture
+title Real-time Voice-to-Text + AI Workflow
 
-skinparam rectangle {
-  BackgroundColor<<Frontend>> LightBlue
-  BackgroundColor<<Backend>> LightYellow
-  BackgroundColor<<Redis>> LightGreen
-}
+actor Client5173 as "Client (Port 5173)"
+actor Client5174 as "Client (Port 5174)"
+participant "Frontend\nWeb Speech API" as Frontend
+participant "Fastify + WebSocket\nServer (Port 3000)" as WS
+database Redis
+participant "OpenAI API" as OpenAI
 
-' ----------------- Frontends -----------------
-rectangle "Frontend A: Reviewer\n(React + TS)" <<Frontend>> {
-  [Mic + Text Input]
-  [Normalize List]
-  [Send via WebSocket]
-}
+Client5173 -> Frontend : Click record button\nSpeak audio
+Frontend -> Frontend : Convert audio to text\n(Web Speech API)
+Frontend -> WS : Send text via WebSocket/HTTP
 
-rectangle "Frontend B: Participant\n(React + TS)" <<Frontend>> {
-  [Subscribe WS]
-  [Render Questions Feed]
-  [Speech Synthesis]
-  [Request Replay on Reconnect]
-}
+WS -> Redis : Add text to Redis stream
+Redis -> Redis : Publish message to subscribers
+Redis --> WS : Notify server of new message
+WS -> WS : Broadcast message to all connected clients
+WS -> Client5174 : Send text
 
-' ----------------- Backend -----------------
-rectangle "Backend: Node.js + Fastify\n(WebSocket + Redis)" <<Backend>> {
-  [Receive followup:create WS]
-  [Rate limiting + Deduplication]
-  [Save Reviewer Msg → Redis Stream]
-  [Call OpenAI API]
-  [Save AI Qs → Redis Stream]
-  [Publish AI Qs → Redis Pub/Sub]
-}
-
-' ----------------- Redis -----------------
-rectangle "Redis" <<Redis>> {
-  [Streams: followups:stream, questions:stream]
-  [Pub/Sub: questions:live]
-  [Counters + Hash Keys for Rate Limiting/Dedup]
-}
-
-' ----------------- OpenAI -----------------
-rectangle "OpenAI API" {
-  [Generate Clarifying Questions]
-}
-
-' ----------------- Flows -----------------
-FrontendA -> Backend : WS followup:create (list of items)
-Backend -> Redis : xAdd followups:stream
-Backend -> Redis : rate + hash check
-Backend -> OpenAI : Chat completion (polite questions)
-OpenAI -> Backend : Generated questions
-Backend -> Redis : xAdd questions:stream
-Backend -> Redis : publish questions:live
-Redis -> FrontendB : WS (via subscriber)
-
-FrontendB -> Backend : Reconnect (send lastSeen IDs)
-Backend -> Redis : xRead missed streams
-Redis -> Backend : Streams replay
-Backend -> FrontendB : Replay reviewer + AI messages
+WS -> OpenAI : Send text for clarification\n(OpenAI API)
+OpenAI --> WS : Return AI-generated suggestions
+WS -> Redis : Add AI response to Redis stream
+Redis -> Redis : Publish AI response to different stream
+Redis --> WS : Notify server of new AI message
+WS -> WS : Broadcast AI response to all clients
+WS -> Client5174 : Send AI-generated response
 
 @enduml
