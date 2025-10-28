@@ -68,9 +68,13 @@ const Participant: React.FC = () => {
             setMessages((prev) => [...prev, messageObj]);
 
             // Speak aloud **only if it's from Reviewer**
-            if (messageObj.sender === "Reviewer") {
+            if (messageObj.sender === "Agent") {
                 speakText(messageObj.text);
             }
+
+            // if (messageObj.sender === "Reviewer" || messageObj.sender === "Agent") {
+            //     speakText(messageObj.text);
+            // }
         };
 
         ws.onclose = () => console.log("❌ Disconnected");
