@@ -1,38 +1,124 @@
 import Fastify from "fastify";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
+import { createClient } from "redis";
+import type { RedisClientType } from "redis";
+
 import OpenAI from "openai";
 import dotenv from "dotenv";
 
+// Load environment variables from .env file
 dotenv.config();
 
+// Initialize Fastify
+const fastify = Fastify();
+
+// Redis client
+const redis: RedisClientType = createClient();
+redis.on("error", (err) => console.error("Redis error:", err));
+await redis.connect();
+
+// OpenAI client
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
-const fastify = Fastify();
-
 // ROUTES
 fastify.get("/", async () => ({ status: "Fastify + WS server running 🚀" }));
+
 fastify.get("/health", async () => ({ ok: true }));
 
+fastify.post("/reset-streams", async (req, reply) => {
+    try {
+        // Delete the stored follow-ups and AI questions
+        await redis.del("followups:stream");
+        await redis.del("questions:stream");
+
+        console.log("✅ Redis streams cleared successfully");
+
+        // Respond with a success message
+        return { status: "success", message: "Redis streams cleared" };
+    } catch (err) {
+        console.error("⚠️ Error clearing Redis streams:", err);
+        reply.status(500);
+        return { status: "error", message: "Failed to clear Redis streams" };
+    }
+});
 
 // Create a server from Fastify and attach WebSocket
 const server = createServer(fastify.server);
 const wss = new WebSocketServer({ server });
 console.log("WebSocket attached to Fastify server Successfully!!!");
 
+// Pub/Sub subscriber for live question updates
+const sub = redis.duplicate();
+await sub.connect();
+await sub.subscribe("questions:live", (msg) => {
+    // Broadcast to all WS clients
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(msg);
+        }
+    });
+});
+
 // Websocket logic
 wss.on("connection", (ws) => {
+    // Send a welcome message to a new client
     console.log("📡 New client connected");
-
     ws.send(JSON.stringify({ sender: "Server", message: "Hello from the backend!" }));
 
+    (async () => {
+        // Optionally: the client could send lastSeen IDs in a query param or first message
+        const lastFollowupId = "0"; // fetch from client if available
+        const lastQuestionsId = "0";
+
+        // 1️⃣ Read all reviewer messages
+        const followups = await redis.xRead(
+            [{ key: "followups:stream", id: lastFollowupId }],
+            { COUNT: 100 }
+        );
+
+        if (followups) {
+            for (const stream of followups) {
+                for (const reviewerMsg of stream.messages) {
+                    const reviewerStreamId = reviewerMsg.id;
+                    // Send reviewer message first
+                    ws.send(JSON.stringify({
+                        sender: "Reviewer",
+                        message: reviewerMsg.message.text,
+                        streamId: reviewerStreamId,
+                        event: "followup:create"
+                    }));
+
+                    // 2️⃣ Send all AI messages that belong to this reviewer
+                    const questions = await redis.xRead(
+                        [{ key: "questions:stream", id: lastQuestionsId }],
+                        { COUNT: 100 }
+                    );
+
+                    if (questions) {
+                        for (const qStream of questions) {
+                            for (const aiMsg of qStream.messages) {
+                                if (aiMsg.message.reviewerId === reviewerStreamId) {
+                                    ws.send(JSON.stringify({
+                                        sender: "Agent",
+                                        message: aiMsg.message.text,
+                                        streamId: aiMsg.id,
+                                        event: "agent:questions"
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })();
+
+    // Handle Incoming messages from the client
     ws.on("message", async (message) => {
         console.log("💬 Received from client:", message.toString());
-
-        let broadcast: string | undefined = undefined;
-        let aiBroadcast: string | undefined = undefined;
 
         try {
             const parsed = JSON.parse(message.toString());
@@ -41,6 +127,27 @@ wss.on("connection", (ws) => {
             if (parsed.event === 'followup:create' && parsed.data?.items) {
                 const items = parsed.data.items.join(" ");
                 console.log("🧠 Generating clarification questions for:", items);
+
+                // 1️⃣ Save reviewer message to Redis stream
+                const reviewerId = await redis.xAdd(
+                    "followups:stream",
+                    "*",
+                    {
+                        sender: "Reviewer",
+                        text: items
+                    }
+                );
+
+                // 2️⃣ Publish Reviewer messages to the live channel
+                await redis.publish(
+                    "questions:live",
+                    JSON.stringify({
+                        sender: "Reviewer",
+                        message: items,
+                        streamId: reviewerId,
+                        event: "followup:create",
+                    })
+                );
 
                 // Call OpenAI to generate questions
                 const completion = await openai.chat.completions.create({
@@ -56,42 +163,51 @@ wss.on("connection", (ws) => {
                         },
                         {
                             role: "user",
-                            content: `The reviewer said: "${items}". Generate 4 short, polite clarification questions a participant might ask.`,
+                            content: `The reviewer said: "${items}". Generate 2 or 4 short, polite clarification questions a participant might ask.`,
                         },
                     ],
                 });
 
-                const text = completion.choices[0]?.message?.content?.trim() ?? "No response";
+                const aiText = completion.choices[0]?.message?.content?.trim() ?? "No response";
 
-                // Send questions to all clients
-                aiBroadcast = JSON.stringify({
-                    sender: "Agent",
-                    message: text,
-                    event: "agent:questions",
-                });
+                // 4️⃣ Save AI questions to Redis stream
+                const aiId = await redis.xAdd(
+                    "questions:stream",
+                    "*",
+                    {
+                        sender: "Agent",
+                        text: aiText,
+                        reviewerId,
+                    }
+                );
 
-                // Broadcast original reviewer message
-                broadcast = JSON.stringify({
-                    sender: "Reviewer",
-                    message: parsed.data.items.join(" "), // convert array to plain string
-                });
+                // 5️⃣ Publish AI questions via Redis Pub/Sub (real-time)
+                await redis.publish(
+                    "questions:live",
+                    JSON.stringify({
+                        sender: "Agent",
+                        message: aiText,
+                        streamId: aiId,
+                        event: "agent:questions",
+                    })
+                );
             } else {
-                broadcast = JSON.stringify({
+                // Normal Message from Participant (Not in Blob)
+                const broadcast = JSON.stringify({
                     sender: parsed.event ? "Reviewer" : "Participant",
                     message: message.toString(),
                 });
+
+                // Broadcast participant messages in real-time
+                wss.clients.forEach((client) => {
+                    if (client.readyState === WebSocket.OPEN) client.send(broadcast);
+                });
             }
         } catch (e) {
-            broadcast = JSON.stringify({ sender: "Unknown", message: message.toString() });
+            console.error("⚠️ Error parsing message:", e);
+            const broadcast = JSON.stringify({ sender: "Unknown", message: message.toString() });
+            if (broadcast && ws.readyState === WebSocket.OPEN) ws.send(broadcast);
         }
-
-        // Broadcast to all connected clients
-        wss.clients.forEach((client) => {
-            if (client.readyState === client.OPEN) {
-                if (broadcast) client.send(broadcast);
-                if (aiBroadcast) client.send(aiBroadcast);
-            }
-        });
     });
 
     ws.on("close", () => console.log("Client disconnected"));
