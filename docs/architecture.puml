@@ -1,0 +1,61 @@
+@startuml
+title Reviewer → Participant Web App Architecture
+
+skinparam rectangle {
+  BackgroundColor<<Frontend>> LightBlue
+  BackgroundColor<<Backend>> LightYellow
+  BackgroundColor<<Redis>> LightGreen
+}
+
+' ----------------- Frontends -----------------
+rectangle "Frontend A: Reviewer\n(React + TS)" <<Frontend>> {
+  [Mic + Text Input]
+  [Normalize List]
+  [Send via WebSocket]
+}
+
+rectangle "Frontend B: Participant\n(React + TS)" <<Frontend>> {
+  [Subscribe WS]
+  [Render Questions Feed]
+  [Speech Synthesis]
+  [Request Replay on Reconnect]
+}
+
+' ----------------- Backend -----------------
+rectangle "Backend: Node.js + Fastify\n(WebSocket + Redis)" <<Backend>> {
+  [Receive followup:create WS]
+  [Rate limiting + Deduplication]
+  [Save Reviewer Msg → Redis Stream]
+  [Call OpenAI API]
+  [Save AI Qs → Redis Stream]
+  [Publish AI Qs → Redis Pub/Sub]
+}
+
+' ----------------- Redis -----------------
+rectangle "Redis" <<Redis>> {
+  [Streams: followups:stream, questions:stream]
+  [Pub/Sub: questions:live]
+  [Counters + Hash Keys for Rate Limiting/Dedup]
+}
+
+' ----------------- OpenAI -----------------
+rectangle "OpenAI API" {
+  [Generate Clarifying Questions]
+}
+
+' ----------------- Flows -----------------
+FrontendA -> Backend : WS followup:create (list of items)
+Backend -> Redis : xAdd followups:stream
+Backend -> Redis : rate + hash check
+Backend -> OpenAI : Chat completion (polite questions)
+OpenAI -> Backend : Generated questions
+Backend -> Redis : xAdd questions:stream
+Backend -> Redis : publish questions:live
+Redis -> FrontendB : WS (via subscriber)
+
+FrontendB -> Backend : Reconnect (send lastSeen IDs)
+Backend -> Redis : xRead missed streams
+Redis -> Backend : Streams replay
+Backend -> FrontendB : Replay reviewer + AI messages
+
+@enduml
